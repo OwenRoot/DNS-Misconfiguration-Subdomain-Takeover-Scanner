@@ -4,6 +4,8 @@ A serverless, browser-based scanner that performs live DNS lookups to find dangl
 
 **Developed by: OwenRoot**
 
+https://owenroot-dns-takeover-scanner.netlify.app
+
 ---
 
 ## Disclaimer
