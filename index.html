@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex">
+  <title>Subdomain Takeover Scanner</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.11"></script>
+
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --border: #d6dbe3;
+      --text: #1b2028;
+      --muted: #5a6472;
+      --accent: #1d4ed8;
+      --accent-hover: #1e40af;
+      --code-bg: #eceff3;
+      --crit: #9b1c1c;
+      --crit-fill: #b42318;
+      --high: #c0392b;
+      --high-bg: #fdf0ee;
+      --med: #a85a00;
+      --med-bg: #fff6e6;
+      --low: #2b6a8f;
+      --low-bg: #eaf3f8;
+      --info: #66707e;
+      --info-bg: #eef0f3;
+      --ok: #1f7a4d;
+      --fix-bg: #eef7f1;
+      --fix-border: #2f8559;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1217;
+        --panel: #151a21;
+        --border: #29313c;
+        --text: #e4e8ee;
+        --muted: #98a2b0;
+        --accent: #5b94ff;
+        --accent-hover: #7aa8ff;
+        --code-bg: #0b0f14;
+        --crit: #ff6b60;
+        --crit-fill: #c4271b;
+        --high: #f0766a;
+        --high-bg: #2a1614;
+        --med: #e3a23b;
+        --med-bg: #2a2012;
+        --low: #6fb4da;
+        --low-bg: #13222c;
+        --info: #8d97a5;
+        --info-bg: #1c222a;
+        --ok: #5cc08c;
+        --fix-bg: #0f2118;
+        --fix-border: #2f8559;
+      }
+    }
+
+    html { background: var(--bg); }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    .mono { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    a { color: var(--accent); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* credit bar: always dark, high contrast, sits at the top (clear of host badges) */
+    .credit-bar { background: #0b0d10; color: #ffffff; border-bottom: 2px solid var(--crit-fill); }
+    .credit-bar .name { color: #ff6b60; }
+
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+    .label { font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--muted); }
+    .hint { font-size: 12.5px; color: var(--muted); }
+
+    .input {
+      width: 100%; box-sizing: border-box;
+      background: var(--panel); color: var(--text);
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 10px 12px; font-size: 15px;
+    }
+    .input::placeholder { color: var(--muted); opacity: .7; }
+    .input:focus { border-color: var(--accent); }
+
+    .btn {
+      background: var(--accent); color: #fff; border: 0; border-radius: 4px;
+      padding: 10px 18px; font: 600 14px "IBM Plex Sans", system-ui, sans-serif; cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn:disabled { background: var(--info-bg); color: var(--muted); cursor: not-allowed; border: 1px solid var(--border); }
+
+    .tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 3px; border: 1px solid var(--border); color: var(--muted); }
+
+    /* log */
+    #log { background: var(--code-bg); border-top: 1px solid var(--border); height: 11rem; overflow-y: auto; padding: 10px 12px; font-size: 12px; line-height: 1.6; border-radius: 0 0 6px 6px; }
+    .l-info { color: var(--muted); } .l-ok { color: var(--ok); } .l-warn { color: var(--med); } .l-err { color: var(--crit); }
+    #integrity.ok { color: var(--ok); border-color: var(--ok); }
+    #integrity.bad { color: #fff; background: var(--crit-fill); border-color: var(--crit-fill); }
+
+    /* summary */
+    .stat { display: inline-flex; gap: 6px; align-items: baseline; padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); font-size: 13px; }
+    .stat b { font-weight: 600; }
+    .stat.hot { border-color: var(--crit); }
+    .stat.hot b { color: var(--crit); }
+
+    /* badges */
+    .badge { display: inline-block; font: 600 11px "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 3px; border: 1px solid currentColor; }
+    .b-crit { background: var(--crit-fill); color: #fff; border-color: var(--crit-fill); }
+    .b-high { background: var(--high-bg); color: var(--high); }
+    .b-med  { background: var(--med-bg); color: var(--med); }
+    .b-low  { background: var(--low-bg); color: var(--low); }
+    .b-info { background: var(--info-bg); color: var(--info); }
+
+    /* high-risk findings */
+    .finding { background: var(--panel); border: 1px solid var(--high); border-left-width: 5px; border-radius: 4px; padding: 16px; }
+    .finding.crit { border-color: var(--crit); }
+    .finding h3 { margin: 0; font: 600 16px "IBM Plex Mono", ui-monospace, monospace; word-break: break-all; }
+    .kv { display: grid; grid-template-columns: 8.5rem 1fr; gap: 4px 12px; margin: 14px 0 0; font-size: 13.5px; }
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; word-break: break-all; }
+    .why { margin: 14px 0 0; font-size: 14px; }
+    .fix { margin-top: 16px; background: var(--fix-bg); border: 1px solid var(--fix-border); border-left-width: 4px; border-radius: 4px; padding: 12px 14px; }
+    .fix h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--ok); }
+    .fix ol { margin: 0; padding-left: 1.2rem; font-size: 13.5px; }
+    .fix li { margin: 0 0 6px; }
+    .fix li:last-child { margin-bottom: 0; }
+
+    /* low-risk rows */
+    .row { display: grid; grid-template-columns: 5.5rem 1fr; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); }
+    .row .host { font: 500 13.5px "IBM Plex Mono", ui-monospace, monospace; word-break: break-all; }
+    .row .meta { font-size: 12.5px; color: var(--muted); word-break: break-all; }
+    .row .desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+    .group-title { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 22px 0 8px; }
+
+    @media (max-width: 520px) { .kv { grid-template-columns: 1fr; } .kv dd { margin-bottom: 6px; } }
+  </style>
+</head>
+<body>
+
+  <div class="credit-bar px-4 py-2 text-center">
+    <span class="mono text-sm font-semibold tracking-wide">DEVELOPED BY: <span class="name">OwenRoot</span></span>
+  </div>
+
+  <main class="mx-auto max-w-3xl px-4 pt-8 pb-8">
+
+    <header class="mb-6">
+      <h1 class="text-2xl font-semibold tracking-tight">Subdomain Takeover Scanner</h1>
+      <p class="mt-2 text-[15px]" style="color:var(--muted)">
+        Checks a domain for CNAME records that point at third-party services which may have been
+        deleted or never claimed. Everything here is passive DNS: CNAME, A and AAAA lookups only.
+        Nothing is requested from the target's web servers.
+      </p>
+      <p class="hint mt-2">Authorized use only. Scan domains you own or have written permission to test.</p>
+    </header>
+
+    <section class="panel mb-4 p-4" aria-label="Scan target">
+      <label for="domain" class="label">Target domain</label>
+      <div class="mt-2 flex flex-col gap-3 sm:flex-row">
+        <input id="domain" class="input mono" type="text" inputmode="url" autocomplete="off" autocapitalize="none"
+               spellcheck="false" placeholder="example.com" maxlength="253">
+        <button id="scan" class="btn" type="button">Scan DNS records</button>
+      </div>
+      <p id="formError" class="mt-2 hidden text-sm" style="color:var(--crit)" role="alert"></p>
+      <p class="hint mt-3">Checks 34 common subdomain names (blog, docs, support, status, shop, pages, and others). Enter the root domain without a protocol or path.</p>
+    </section>
+
+    <section class="panel mb-4 p-4" aria-label="Session key">
+      <div class="flex items-center justify-between gap-3">
+        <span class="label">Session key (HMAC-SHA256)</span>
+        <span class="tag mono">LOCKED</span>
+      </div>
+      <div id="salt" class="mono mt-2 select-all break-all rounded px-3 py-2 text-[13px]" style="background:var(--code-bg)">generating…</div>
+      <p class="hint mt-2">Generated in this browser when the page loads and sent with each request. The server signs its response with it, and the page re-computes the signature before showing any result.</p>
+    </section>
+
+    <section class="panel mb-6" aria-label="Run log">
+      <div class="flex items-center justify-between px-3 py-2">
+        <span class="label">Run log</span>
+        <span id="integrity" class="tag mono">integrity: idle</span>
+      </div>
+      <div id="log" class="mono" role="log" aria-live="polite"></div>
+    </section>
+
+    <section id="summary" class="mb-2 hidden flex-wrap gap-2" aria-label="Summary"></section>
+    <section id="results" aria-label="Findings"></section>
+  </main>
+
+  <footer class="mx-auto max-w-3xl px-4 pb-28 text-center">
+    <span class="mono text-sm font-semibold">DEVELOPED BY: <span style="color:var(--crit)">OwenRoot</span></span>
+  </footer>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const saltEl = $('salt'), domainEl = $('domain'), scanBtn = $('scan');
+  const logEl = $('log'), integrityEl = $('integrity');
+  const resultsEl = $('results'), summaryEl = $('summary'), formError = $('formError');
+
+  const DOMAIN_RE = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+  const COOLDOWN_S = 10;
+
+  /* ---------- helpers ---------- */
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function genSalt(len = 32) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const limit = 256 - (256 % chars.length);
+    let out = '';
+    while (out.length < len) {
+      const buf = new Uint8Array(len);
+      crypto.getRandomValues(buf);
+      for (const b of buf) if (b < limit && out.length < len) out += chars[b % chars.length];
+    }
+    return out;
+  }
+
+  const SALT = genSalt();
+  saltEl.textContent = SALT;
+
+  function log(msg, kind = 'info') {
+    const line = document.createElement('div');
+    line.className = 'l-' + kind;
+    line.textContent = `${new Date().toLocaleTimeString([], { hour12: false })}  ${msg}`;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setIntegrity(state, text) {
+    integrityEl.className = 'tag mono' + (state === 'ok' ? ' ok' : state === 'bad' ? ' bad' : '');
+    integrityEl.textContent = text;
+  }
+
+  const toHex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+  async function hmacSha256Hex(key, message) {
+    const enc = new TextEncoder();
+    const k = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    return toHex(await crypto.subtle.sign('HMAC', k, enc.encode(message)));
+  }
+
+  function safeEqual(a, b) {
+    if (a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    return diff === 0;
+  }
+
+  function decodePayload(b64) {
+    const bin = atob(b64);
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }
+
+  /* ---------- rendering ---------- */
+  const SEV = {
+    CRITICAL:      { badge: 'b-crit', label: 'CRITICAL' },
+    HIGH:          { badge: 'b-high', label: 'HIGH' },
+    MEDIUM:        { badge: 'b-med',  label: 'MEDIUM' },
+    LOW:           { badge: 'b-low',  label: 'LOW' },
+    INFORMATIONAL: { badge: 'b-info', label: 'INFO' }
+  };
+
+  const STATUS_TEXT = {
+    DANGLING_NXDOMAIN: 'Dangling record, target does not resolve',
+    FINGERPRINT_MATCH: 'Provider fingerprint match, needs verification',
+    LIVE: 'Live third-party target',
+    LIVE_UNVERIFIED: 'Third-party target, resolution inconclusive',
+    NO_CNAME: 'No CNAME record'
+  };
+
+  function remediationSteps(text) {
+    // First line is the heading; the rest are "1) ..." steps.
+    return String(text || '').split('\n').slice(1)
+      .map((l) => l.replace(/^\d+\)\s*/, '').trim()).filter(Boolean);
+  }
+
+  function renderFinding(f) {
+    const s = SEV[f.severity] || SEV.HIGH;
+    const crit = f.severity === 'CRITICAL';
+    const steps = remediationSteps(f.remediation).map((t) => `<li>${esc(t)}</li>`).join('');
+    return `
+      <article class="finding ${crit ? 'crit' : ''}" style="margin-bottom:12px">
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="badge ${s.badge}">${esc(s.label)}</span>
+          <h3 class="mono">${esc(f.subdomain)}</h3>
+        </div>
+        <dl class="kv">
+          <dt>Triage category</dt><dd><strong>${esc(f.severity)}</strong> &middot; ${esc(STATUS_TEXT[f.status] || f.status)}</dd>
+          <dt>Vulnerable provider</dt><dd><strong>${esc(f.provider)}</strong></dd>
+          <dt>CNAME target</dt><dd class="mono">${esc(f.cname)}</dd>
+        </dl>
+        <p class="why">${esc(f.description)}</p>
+        <div class="fix">
+          <h4>Remediation &amp; Defense Strategy</h4>
+          <ol>${steps}</ol>
+        </div>
+      </article>`;
+  }
+
+  function renderRow(f) {
+    const s = SEV[f.severity] || SEV.INFORMATIONAL;
+    return `
+      <div class="row" style="margin-bottom:6px">
+        <div><span class="badge ${s.badge}">${esc(s.label)}</span></div>
+        <div>
+          <div class="host">${esc(f.subdomain)}</div>
+          ${f.cname ? `<div class="meta mono">&rarr; ${esc(f.cname)}${f.provider ? ' &middot; ' + esc(f.provider) : ''}</div>` : ''}
+          <div class="desc">${esc(f.description)}</div>
+        </div>
+      </div>`;
+  }
+
+  function renderResults(data) {
+    const counts = {};
+    data.findings.forEach((f) => { counts[f.severity] = (counts[f.severity] || 0) + 1; });
+    const order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
+
+    summaryEl.className = 'mb-2 flex flex-wrap gap-2';
+    summaryEl.innerHTML =
+      `<span class="stat"><span style="color:var(--muted)">Target</span> <b class="mono">${esc(data.domain)}</b></span>` +
+      `<span class="stat"><span style="color:var(--muted)">Names checked</span> <b>${esc(data.checked)}</b></span>` +
+      order.map((k) => {
+        const n = counts[k] || 0;
+        const hot = (k === 'CRITICAL' || k === 'HIGH') && n > 0;
+        return `<span class="stat ${hot ? 'hot' : ''}"><span style="color:var(--muted)">${esc(SEV[k].label)}</span> <b>${n}</b></span>`;
+      }).join('');
+
+    const risky = data.findings.filter((f) => f.severity === 'CRITICAL' || f.severity === 'HIGH');
+    const medium = data.findings.filter((f) => f.severity === 'MEDIUM');
+    const rest = data.findings.filter((f) => !['CRITICAL', 'HIGH', 'MEDIUM'].includes(f.severity));
+
+    let html = '';
+    if (risky.length) html += `<div class="group-title">Needs attention (${risky.length})</div>` + risky.map(renderFinding).join('');
+    else html += `<p class="hint" style="margin:18px 0 0">No takeover-prone records found among the names checked.</p>`;
+    if (medium.length) html += `<div class="group-title">Medium (${medium.length})</div>` + medium.map(renderRow).join('');
+    if (rest.length) html += `<div class="group-title">Other records (${rest.length})</div>` + rest.map(renderRow).join('');
+    resultsEl.innerHTML = html;
+  }
+
+  /* ---------- scan flow ---------- */
+  function showFormError(msg) {
+    formError.textContent = msg || '';
+    formError.classList.toggle('hidden', !msg);
+  }
+
+  let cooldownTimer = null;
+  function startCooldown(seconds) {
+    clearInterval(cooldownTimer);
+    let left = seconds;
+    scanBtn.disabled = true;
+    scanBtn.textContent = `Wait ${left}s`;
+    cooldownTimer = setInterval(() => {
+      left -= 1;
+      if (left <= 0) {
+        clearInterval(cooldownTimer);
+        scanBtn.disabled = false;
+        scanBtn.textContent = 'Scan DNS records';
+      } else {
+        scanBtn.textContent = `Wait ${left}s`;
+      }
+    }, 1000);
+  }
+
+  async function scan() {
+    showFormError('');
+    const domain = domainEl.value.trim().toLowerCase().replace(/\.$/, '');
+    if (!DOMAIN_RE.test(domain)) {
+      showFormError('Enter a root domain like example.com, without a protocol, path or spaces.');
+      return;
+    }
+
+    scanBtn.disabled = true;
+    scanBtn.textContent = 'Scanning…';
+    resultsEl.innerHTML = '';
+    summaryEl.className = 'hidden';
+    setIntegrity('idle', 'integrity: pending');
+    log(`target ${domain}`);
+    log('querying CNAME records for 34 subdomain names…');
+
+    let cooldown = COOLDOWN_S;
+    try {
+      const url = `/.netlify/functions/scan-takeover?domain=${encodeURIComponent(domain)}&salt=${encodeURIComponent(SALT)}`;
+      const res = await fetch(url, { method: 'GET', cache: 'no-store', headers: { Accept: 'application/json' } });
+      let body;
+      try { body = await res.json(); } catch { body = null; }
+
+      if (res.status === 429) {
+        cooldown = (body && body.retryAfter) || COOLDOWN_S;
+        log(`rate limited by server, retry in ${cooldown}s`, 'warn');
+        showFormError(`Rate limited. Wait ${cooldown}s and try again.`);
+        return;
+      }
+      if (!res.ok || !body) {
+        const msg = (body && body.error) || `Server returned HTTP ${res.status}.`;
+        log(`request failed: ${msg}`, 'err');
+        showFormError(msg);
+        return;
+      }
+      if (!body.payload || !body.signature) {
+        log('response is missing payload or signature', 'err');
+        showFormError('Unexpected response from the server.');
+        return;
+      }
+
+      log(`response received (${body.algorithm}, ${body.encoding})`);
+      const expected = await hmacSha256Hex(SALT, body.payload);
+      log(`server hmac  ${body.signature}`);
+      log(`local hmac   ${expected}`);
+
+      if (!safeEqual(expected, String(body.signature).toLowerCase())) {
+        setIntegrity('bad', 'integrity: FAILED');
+        log('signature mismatch, results discarded', 'err');
+        showFormError('Integrity check failed. Results were discarded.');
+        return;
+      }
+      setIntegrity('ok', 'integrity: verified');
+      log('signature verified, decoding payload', 'ok');
+
+      const data = decodePayload(body.payload);
+      if (!data || !Array.isArray(data.findings)) throw new Error('Unexpected payload structure.');
+      const hot = data.findings.filter((f) => f.severity === 'CRITICAL' || f.severity === 'HIGH').length;
+      log(`${data.findings.length} records returned, ${hot} high-risk`, hot ? 'warn' : 'ok');
+      renderResults(data);
+    } catch (err) {
+      log(`error: ${err && err.message ? err.message : 'unknown failure'}`, 'err');
+      showFormError('Scan failed. Check your connection and try again.');
+    } finally {
+      startCooldown(cooldown);
+    }
+  }
+
+  scanBtn.addEventListener('click', scan);
+  domainEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !scanBtn.disabled) scan(); });
+
+  log('ready. session key generated');
+  if (!window.isSecureContext || !crypto.subtle) log('Web Crypto unavailable, serve this page over HTTPS', 'warn');
+})();
+</script>
+</body>
+</html>
