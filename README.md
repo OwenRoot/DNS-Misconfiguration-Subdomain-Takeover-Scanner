@@ -1,0 +1,1 @@
+# DNS-Misconfiguration-Subdomain-Takeover-Scanner
